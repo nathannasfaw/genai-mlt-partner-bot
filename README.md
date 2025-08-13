@@ -5,7 +5,7 @@
 ![Framework: LangChain](https://img.shields.io/badge/framework-LangChain-purple.svg)
 ![Deployment: AWS Lambda](https://img.shields.io/badge/deployment-AWS%20Lambda-orange.svg)
 
-A Retrieval-Augmented Generation (RAG) bot designed to provide deep, insightful answers from the 10-Q and 10-K filings of publicly traded Master Limited Partnerships (MLPs).
+A Retrieval-Augmented Generation (RAG) bot designed to provide deep, insightful answers from the 10-Q and 10-K filings of publicly traded MLT Partners.
 
 ---
 
