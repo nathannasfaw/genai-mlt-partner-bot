@@ -46,3 +46,7 @@ lambda1_module/*dist-info/
 # Temporary AWS files
 *.tmp
 *.log
+
+# Additional Lambda dependencies that might exist
+lambda1_module/six-*/
+lambda1_module/python_dateutil-*/

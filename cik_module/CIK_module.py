@@ -17,7 +17,7 @@ retrievable by either the company name or ticker symbol.
 It does not accept incomplete or invalid company names or ticker symbols.
 '''
 class SECEdgar: 
-    def __init__(self, fileurl):
+    def __init__(self, fileurl=None, use_s3=False, s3_bucket=None, s3_key=None):
         self.fileurl = fileurl
         # initialize two dictionaries to store CIKs
         self.name_dict = {}
@@ -25,10 +25,33 @@ class SECEdgar:
         # headers used to follow SEC EDGAR Fair Access Policy 
         self.headers = {'User-Agent': 'MLT CP nathanrasfaw@gmail.com'}
 
-        # send a GET request to the SEC EDGAR database and stores the response
-        r = requests.get(self.fileurl, headers=self.headers)
-        # stores the JSON response in the filejson variable
-        self.filejson = r.json()
+        if use_s3:
+            # Use S3 data source
+            if s3_bucket is None:
+                s3_bucket = "nathanasfaw-sec-edgar-files"
+            if s3_key is None:
+                s3_key = "company_tickers.json"
+            
+            try:
+                # Try to use the SSO profile if available
+                session = boto3.Session(profile_name='mlt-course-730128023791')
+                s3_client = session.client('s3')
+                response = s3_client.get_object(Bucket=s3_bucket, Key=s3_key)
+                self.filejson = json.loads(response['Body'].read().decode('utf-8'))
+                print(f"Successfully loaded data from S3: s3://{s3_bucket}/{s3_key}")
+            except Exception as e:
+                print(f"Error loading from S3: {e}")
+                print("Falling back to direct SEC API call...")
+                use_s3 = False
+        
+        if not use_s3:
+            # Fallback to direct SEC API call
+            if fileurl is None:
+                fileurl = "https://www.sec.gov/files/company_tickers.json"
+            # send a GET request to the SEC EDGAR database and stores the response
+            r = requests.get(fileurl, headers=self.headers)
+            # stores the JSON response in the filejson variable
+            self.filejson = r.json()
 
         self.cik_json_to_dict()
 
