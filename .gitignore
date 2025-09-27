@@ -4,3 +4,17 @@
 .venv/
 # Ignore Python cache
 __pycache__/
+# AWS credentials
+.aws/
+*.pem
+*.key
+credentials
+config
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Secrets
+secrets.json
