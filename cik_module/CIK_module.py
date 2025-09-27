@@ -5,6 +5,9 @@
 import requests
 import datetime
 from typing import Optional, List
+import boto3
+import json
+from typing import Dict, Optional
 
 '''
 The SECEdgar class is used to parse the public

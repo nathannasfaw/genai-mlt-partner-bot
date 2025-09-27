@@ -21,3 +21,28 @@ secrets.json
 
 # AWS CLI installation files
 aws/
+
+# AWS Lambda deployment artifacts
+trust-policy.json
+response.json
+lambda_function.zip
+*.zip
+
+# Lambda dependencies (too large for Git)
+lambda1_module/boto3/
+lambda1_module/botocore/
+lambda1_module/certifi/
+lambda1_module/charset_normalizer/
+lambda1_module/dateutil/
+lambda1_module/idna/
+lambda1_module/jmespath/
+lambda1_module/python_dateutil*/
+lambda1_module/requests/
+lambda1_module/s3transfer/
+lambda1_module/six*/
+lambda1_module/urllib3/
+lambda1_module/*dist-info/
+
+# Temporary AWS files
+*.tmp
+*.log
