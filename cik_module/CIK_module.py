@@ -7,7 +7,9 @@ import datetime
 from typing import Optional, List
 import boto3
 import json
+import os 
 from typing import Dict, Optional
+from botocore.exceptions import ClientError, NoCredentialsError, ProfileNotFound
 
 '''
 The SECEdgar class is used to parse the public
@@ -33,12 +35,32 @@ class SECEdgar:
                 s3_key = "company_tickers.json"
             
             try:
-                # Try to use the SSO profile if available
-                session = boto3.Session(profile_name='mlt-course-730128023791')
-                s3_client = session.client('s3')
+                # Check if running in Lambda or local environment
+                if os.environ.get('AWS_LAMBDA_FUNCTION_NAME'):
+                    # Running in Lambda - use execution role
+                    print("Detected Lambda environment, using execution role")
+                    s3_client = boto3.client('s3')
+                else:
+                    # Running locally - try profile first, fallback to default
+                    print("Detected local environment, trying profile configuration")
+                    try:
+                        session = boto3.Session(profile_name='mlt-course-730128023791')
+                        s3_client = session.client('s3')
+                        print("Using profile: mlt-course-730128023791")
+                    except (ProfileNotFound, NoCredentialsError) as profile_error:
+                        print(f"Profile not found ({profile_error}), falling back to default credentials")
+                        s3_client = boto3.client('s3')
+                
+                # Attempt to get the object from S3
                 response = s3_client.get_object(Bucket=s3_bucket, Key=s3_key)
                 self.filejson = json.loads(response['Body'].read().decode('utf-8'))
                 print(f"Successfully loaded data from S3: s3://{s3_bucket}/{s3_key}")
+
+            except ClientError as e:
+                error_code = e.response['Error']['Code']
+                print(f"S3 ClientError ({error_code}): {e}")
+                print("Falling back to direct SEC API call...")
+                use_s3 = False
             except Exception as e:
                 print(f"Error loading from S3: {e}")
                 print("Falling back to direct SEC API call...")
@@ -171,7 +193,7 @@ class SECEdgar:
             if form == '10-K' and i < len(filing_dates):
                 if filing_dates[i].startswith(str(year)):
                     acc_num = accession_numbers[i].replace('-', '')
-                    doc = primary_documents[i]
+                    doc = primary_documents[i].strip().rstrip('\\/')
                     filing_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_num}/{doc}"
                     return filing_url
 
@@ -191,7 +213,7 @@ class SECEdgar:
                     if form == '10-K' and i < len(filing_dates):
                         if filing_dates[i].startswith(str(year)):
                             acc_num = accession_numbers[i].replace('-', '')
-                            doc = primary_documents[i]
+                            doc = primary_documents[i].strip().rstrip('\\/')
                             filing_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_num}/{doc}"
                             return filing_url
             else:
@@ -205,6 +227,9 @@ class SECEdgar:
             print("No JSON data provided to find_10q_filing.")
             return None
 
+        # Collect all 10-Q filings for the year from recent filings
+        quarterly_filings = []
+        
         # 1. Search in recent filings
         recent = response_json.get('filings', {}).get('recent', {})
         forms = recent.get('form', [])
@@ -215,45 +240,58 @@ class SECEdgar:
         for i, form in enumerate(forms):
             if form == '10-Q' and i < len(filing_dates):
                 if filing_dates[i].startswith(str(year)):
-                    month = int(filing_dates[i][5:7])
-                    if (quarter == 1 and month in [1, 2, 3]) or \
-                    (quarter == 2 and month in [4, 5, 6]) or \
-                    (quarter == 3 and month in [7, 8, 9]) or \
-                    (quarter == 4 and month in [10, 11, 12]):
-                        acc_num = accession_numbers[i].replace('-', '')
-                        doc = primary_documents[i]
-                        filing_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_num}/{doc}"
-                        return filing_url
+                    acc_num = accession_numbers[i].replace('-', '')
+                    doc = primary_documents[i].strip().rstrip('\\/')
+                    filing_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_num}/{doc}"
+                    quarterly_filings.append((filing_dates[i], filing_url))
 
-        # 2. If not found, check each file in "files" (no recursion)
-        files = response_json.get('filings', {}).get('files', [])
-        for file_info in files:
-            file_url = f"https://data.sec.gov/submissions/{file_info['name']}"
-            resp = requests.get(file_url, headers=self.headers)
-            if resp.status_code == 200:
-                file_json = resp.json()
-                recent = file_json.get('filings', {}).get('recent', {})
-                forms = recent.get('form', [])
-                filing_dates = recent.get('filingDate', [])
-                accession_numbers = recent.get('accessionNumber', [])
-                primary_documents = recent.get('primaryDocument', [])
-                for i, form in enumerate(forms):
-                    if form == '10-Q' and i < len(filing_dates):
-                        if filing_dates[i].startswith(str(year)):
-                            month = int(filing_dates[i][5:7])
-                            if (quarter == 1 and month in [1, 2, 3]) or \
-                            (quarter == 2 and month in [4, 5, 6]) or \
-                            (quarter == 3 and month in [7, 8, 9]) or \
-                            (quarter == 4 and month in [10, 11, 12]):
+        # 2. If not enough filings found, check each file in "files"
+        if len(quarterly_filings) < quarter:
+            files = response_json.get('filings', {}).get('files', [])
+            for file_info in files:
+                file_url = f"https://data.sec.gov/submissions/{file_info['name']}"
+                resp = requests.get(file_url, headers=self.headers)
+                if resp.status_code == 200:
+                    file_json = resp.json()
+                    recent = file_json.get('filings', {}).get('recent', {})
+                    forms = recent.get('form', [])
+                    filing_dates = recent.get('filingDate', [])
+                    accession_numbers = recent.get('accessionNumber', [])
+                    primary_documents = recent.get('primaryDocument', [])
+                    for i, form in enumerate(forms):
+                        if form == '10-Q' and i < len(filing_dates):
+                            if filing_dates[i].startswith(str(year)):
                                 acc_num = accession_numbers[i].replace('-', '')
-                                doc = primary_documents[i]
+                                doc = primary_documents[i].strip().rstrip('\\/')
                                 filing_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_num}/{doc}"
-                                return filing_url
-            else:
-                print(f"Failed to fetch {file_url} (status {resp.status_code})")
+                                quarterly_filings.append((filing_dates[i], filing_url))
+                else:
+                    print(f"Failed to fetch {file_url} (status {resp.status_code})")
 
-        print(f"No 10-Q filing found for year {year} and quarter {quarter}.")
+        # Sort filings by date (most recent first)
+        quarterly_filings.sort(key=lambda x: x[0], reverse=True)
+        
+        # Return the nth quarterly filing (1st, 2nd, 3rd, or 4th)
+        if 1 <= quarter <= len(quarterly_filings):
+            print(f"Found {len(quarterly_filings)} quarterly filings for {year}, returning #{quarter}")
+            return quarterly_filings[quarter - 1][1]  # Return URL
+        
+        print(f"No 10-Q filing found for year {year} and quarter {quarter}. Found {len(quarterly_filings)} total quarterly filings.")
         return None
+
+    # Simple method to get filing content from URL
+    def get_filing_content(self, filing_url: str) -> Optional[str]:
+        """Get the content of a SEC filing document."""
+        if not filing_url:
+            return None
+        try:
+            response = requests.get(filing_url, headers=self.headers)
+            if response.status_code == 200:
+                return response.text
+            return None
+        except Exception as e:
+            print(f"Error getting filing content: {e}")
+            return None
 
 # Example usage of the SECEdgar class
 se = SECEdgar('https://www.sec.gov/files/company_tickers.json')
