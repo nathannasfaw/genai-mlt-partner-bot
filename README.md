@@ -12,14 +12,16 @@ This project implements a two-Lambda serverless architecture that provides fast,
 
 ## Architecture
 
-The system uses a microservices approach with two specialized Lambda functions:
+The system uses a microservices approach with three specialized Lambda functions:
+
 
 **Data Flow:**
 ```
-Client Request → Lambda 2 (Document Processor) → S3 Cache (from Lambda 1) → SEC EDGAR API → Response
+Client Request → Lambda 3 (SEC Q&A) → Lambda 2 (Document Processor) → S3 Cache (from Lambda 1) → SEC EDGAR API → Claude Sonnet (Bedrock) → Response
 ```
 
 ### Components
+
 
 **Lambda 1 (SEC-Data-Downloader)**
 - Downloads fresh SEC company data from the official EDGAR database
@@ -30,6 +32,13 @@ Client Request → Lambda 2 (Document Processor) → S3 Cache (from Lambda 1) �
 - Processes client requests for specific filings
 - Uses cached S3 data with SEC API fallback
 - Returns clean filing URLs with comprehensive metadata
+
+**Lambda 3 (SEC-Q&A with Claude Sonnet)**
+- Accepts natural language financial questions (e.g., "What was Apple's Q3 revenue in 2023?")
+- Determines filing type (annual/quarterly) and invokes Lambda 2 to retrieve the correct SEC document URL
+- Downloads and cleans the SEC filing (up to 100,000 characters)
+- Uses AWS Bedrock (Claude 3.5 Sonnet) to answer the question based strictly on the SEC document
+- Returns a detailed, document-cited answer, including metadata and debug info
 
 ## File Directory
 
@@ -45,12 +54,16 @@ genai-mlt-partner-bot/
 ├── lambda1_module/              # SEC Data Downloader
 │   ├── lambda_1.py             # Downloads SEC data to S3
 │   └── requirements.txt        # Lambda 1 dependencies
-└── lambda2_module/              # SEC Document Processor
-    ├── lambda_2.py             # Main Lambda function
-    ├── CIK_module.py           # Enhanced SEC processing
-    ├── requirements.txt        # Lambda 2 dependencies
-    ├── test_lambda_2.py        # Unit tests
-    └── __init__.py             # Module initialization
+├── lambda2_module/              # SEC Document Processor
+│   ├── lambda_2.py             # Main Lambda function
+│   ├── CIK_module.py           # Enhanced SEC processing
+│   ├── requirements.txt        # Lambda 2 dependencies
+│   ├── test_lambda_2.py        # Unit tests
+│   └── __init__.py             # Module initialization
+├── lambda3_module/              # SEC Q&A Lambda (Claude Sonnet)
+│   ├── lambda_3.py             # Main Lambda 3 handler
+│   ├── requirements.txt        # Lambda 3 dependencies
+│   └── test_lambda_3.py        # Unit tests
 ```
 
 ## Key Features
@@ -60,6 +73,9 @@ genai-mlt-partner-bot/
 - **Filing Retrieval**: Access to both 10-K (annual) and 10-Q (quarterly) documents
 - **Smart Caching**: S3-based caching system for improved performance
 - **Environment Awareness**: Automatic adaptation between Lambda and local development environments
+- **Natural Language Q&A**: Lambda 3 enables direct financial Q&A using Claude Sonnet, with answers based strictly on SEC filings
+- **Large Document Support**: Lambda 3 processes up to 100,000 characters from SEC filings for more accurate answers
+- **Debug Logging**: Extensive debug logs for every major step in Lambda 3
 
 ### Technical Improvements
 - **Enhanced Quarterly Logic**: Filing-order based quarters instead of calendar-based
@@ -68,6 +84,35 @@ genai-mlt-partner-bot/
 - **Error Handling**: Robust error responses with appropriate HTTP status codes
 
 ## API Usage
+
+### Lambda 3 (SEC Q&A)
+Send a natural language question, ticker, and year (optionally quarter):
+```json
+{
+  "question": "What was Apple's Q3 revenue in 2023?",
+  "ticker": "AAPL",
+  "year": "2023"
+}
+```
+
+Response includes the answer, filing type, quarter, SEC document URL, document size, and model used:
+```json
+{
+  "statusCode": 200,
+  "body": {
+    "question": "What was Apple's Q3 revenue in 2023?",
+    "company": "AAPL",
+    "year": 2023,
+    "filing_type": "Quarter",
+    "quarter": "3",
+    "answer": "Apple's Q3 2023 revenue was $XYZ billion, as reported on page 12 of the SEC filing.",
+    "sec_document_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/aapl-20230930.htm",
+    "document_size": 99999,
+    "model_used": "Claude 3.5 Sonnet",
+    "success": true
+  }
+}
+```
 
 ### Annual Reports (10-K)
 ```json
